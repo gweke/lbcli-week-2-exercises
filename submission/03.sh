@@ -13,7 +13,7 @@ NUM_BLOCKS=103
 MINE_103_BLOCKS=$(bitcoin-cli -regtest generatetoaddress $NUM_BLOCKS $SEGWIT_ADDR)
 
 # Use settxfee to set a reasonable fee for regtest
-bitcoin-cli -regtest -rpcwallet=$wallet_name settxfee 0.00001
+#bitcoin-cli -regtest -rpcwallet=$wallet_name settxfee 0.00001
 
 amount=10
 comment="The first transaction"
