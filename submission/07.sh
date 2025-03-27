@@ -60,4 +60,4 @@ raw_unsigned=$(bitcoin-cli -regtest createrawtransaction \
 #  "[{\"txid\": \"$txid\", \"vout\": $vout}]" \
 #  "{\"$recipient\": $amount_to_send_btc, \"$change_address\": $change_btc}")
 
-echo "Raw unsigned transaction: $raw_unsigned"
+echo $raw_unsigned
