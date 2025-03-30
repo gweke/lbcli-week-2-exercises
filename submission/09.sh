@@ -49,17 +49,19 @@ echo ""
 
 # STUDENT TASK: Decode the transaction to get the TXID
 # WRITE YOUR SOLUTION BELOW:
-TXID=
+decode_tx=$(bitcoin-cli -regtest decoderawtransaction $BASE_TX)
+TXID=$(echo $decode_tx | jq -r '.txid')
 check_cmd "Transaction decoding" "TXID" "$TXID"
 
 echo "Transaction ID: $TXID"
 
 # STUDENT TASK: Extract the number of inputs and outputs from the transaction
 # WRITE YOUR SOLUTION BELOW:
-NUM_INPUTS=
+
+NUM_INPUTS=$(echo $decode_tx | jq -r '.vin | length')
 check_cmd "Input counting" "NUM_INPUTS" "$NUM_INPUTS"
 
-NUM_OUTPUTS=
+NUM_OUTPUTS=$(echo $decode_tx | jq -r '.vout | length')
 check_cmd "Output counting" "NUM_OUTPUTS" "$NUM_OUTPUTS"
 
 echo "Number of inputs: $NUM_INPUTS"
@@ -67,7 +69,7 @@ echo "Number of outputs: $NUM_OUTPUTS"
 
 # STUDENT TASK: Extract the value of the first output in satoshis
 # WRITE YOUR SOLUTION BELOW:
-FIRST_OUTPUT_VALUE=
+FIRST_OUTPUT_VALUE=$(echo $decode_tx | jq -r '.vout[0].value * 100000000 | floor')
 check_cmd "Output value extraction" "FIRST_OUTPUT_VALUE" "$FIRST_OUTPUT_VALUE"
 
 echo "First output value: $FIRST_OUTPUT_VALUE satoshis"
@@ -88,10 +90,10 @@ echo ""
 # STUDENT TASK: Extract the available UTXOs from the decoded transaction for spending
 # WRITE YOUR SOLUTION BELOW:
 UTXO_TXID=$TXID
-UTXO_VOUT_INDEX=
+UTXO_VOUT_INDEX=$(echo "$decode_tx" | jq -r '.vout[0].n')
 check_cmd "UTXO vout selection" "UTXO_VOUT_INDEX" "$UTXO_VOUT_INDEX"
 
-UTXO_VALUE=
+UTXO_VALUE=$(echo $decode_tx | jq -r '.vout[0].value * 100000000 | floor')
 check_cmd "UTXO value extraction" "UTXO_VALUE" "$UTXO_VALUE"
 
 echo "Selected UTXO:"
@@ -120,6 +122,8 @@ echo "Assume a fee rate of 10 satoshis/vbyte. The transaction will have:"
 echo "- 1 input (from your selected UTXO)"
 echo "- 2 outputs (payment and change)"
 echo ""
+n_input=1
+n_output=2
 
 # Information about approximate transaction sizes (simplified for exercise)
 echo "Approximate transaction components:"
@@ -130,11 +134,15 @@ echo ""
 
 # STUDENT TASK: Calculate the approximate transaction size and fee
 # WRITE YOUR SOLUTION BELOW:
-TX_SIZE=
+input_size=68
+output_size=31
+base_tx_size=10
+
+TX_SIZE=$((base_tx_size + (n_input * input_size) + (n_output * output_size)))
 check_cmd "Transaction size calculation" "TX_SIZE" "$TX_SIZE"
 
 FEE_RATE=10  # satoshis/vbyte
-FEE_SATS=
+FEE_SATS=$((FEE_RATE * TX_SIZE))
 check_cmd "Fee calculation" "FEE_SATS" "$FEE_SATS"
 
 echo "Estimated transaction size: $TX_SIZE vbytes"
@@ -168,7 +176,7 @@ PAYMENT_ADDRESS="2MvLcssW49n9atmksjwg2ZCMsEMsoj3pzUP"
 CHANGE_ADDRESS="bcrt1qg09ftw43jvlhj4wlwwhkxccjzmda3kdm4y83ht"
 
 # STUDENT TASK: Create a proper input JSON for createrawtransaction
-TX_INPUTS=
+TX_INPUTS="[{\"txid\": \"$UTXO_TXID\", \"vout\": $UTXO_VOUT_INDEX, \"sequence\": 1}]"
 check_cmd "Input JSON creation" "TX_INPUTS" "$TX_INPUTS"
 
 # Verify RBF is enabled in the input structure
@@ -178,21 +186,29 @@ else
   echo "⚠️ Warning: RBF might not be properly enabled. Check your sequence number."
 fi
 
+echo "TX_INPUTS: $TX_INPUTS"
+
 # STUDENT TASK: Calculate the change amount
 PAYMENT_AMOUNT=15000000  # in satoshis
-CHANGE_AMOUNT=
+CHANGE_AMOUNT=$((UTXO_VALUE - PAYMENT_AMOUNT - FEE_SATS))
 check_cmd "Change calculation" "CHANGE_AMOUNT" "$CHANGE_AMOUNT"
 
+echo "payment amount: $PAYMENT_AMOUNT change amount: $CHANGE_AMOUNT"
+
 # Convert amounts to BTC for createrawtransaction
-PAYMENT_BTC=
-CHANGE_BTC=
+PAYMENT_BTC=$(printf "%.8f" "$(bc -l <<< "scale=8; $PAYMENT_AMOUNT / 100000000")")
+CHANGE_BTC=$(printf "%.8f" "$(bc -l <<< "scale=8; $CHANGE_AMOUNT / 100000000")")
+
+echo "payment amount btc: $PAYMENT_BTC change amount btc: $CHANGE_BTC"
 
 # STUDENT TASK: Create the outputs JSON structure
-TX_OUTPUTS=
+TX_OUTPUTS="{\"$PAYMENT_ADDRESS\": $PAYMENT_BTC, \"$CHANGE_ADDRESS\": $CHANGE_BTC}"
 check_cmd "Output JSON creation" "TX_OUTPUTS" "$TX_OUTPUTS"
 
+echo "TX_OUTPUT: $TX_OUTPUTS"
+
 # STUDENT TASK: Create the raw transaction
-RAW_TX=
+RAW_TX=$(bitcoin-cli -regtest createrawtransaction "$TX_INPUTS" "$TX_OUTPUTS")
 check_cmd "Raw transaction creation" "RAW_TX" "$RAW_TX"
 
 echo "Successfully created raw transaction!"
@@ -210,18 +226,25 @@ echo ""
 
 # STUDENT TASK: Decode the raw transaction
 # WRITE YOUR SOLUTION BELOW:
-DECODED_TX=
+DECODED_TX=$(bitcoin-cli -regtest decoderawtransaction $RAW_TX)
 check_cmd "Transaction decoding" "DECODED_TX" "$DECODED_TX"
+
+echo "decoded raw_tx to check the output index--------------------------------"
+echo $DECODED_TX | jq '.'
 
 # STUDENT TASK: Extract and verify the key components from the decoded transaction
 # WRITE YOUR SOLUTION BELOW:
-VERIFY_RBF=
+VERIFY_RBF=$(echo "$DECODED_TX" | jq -r '.vin[0].sequence')
+if [ "$VERIFY_RBF" -lt 4294967294 ]; then
+  VERIFY_RBF=true
+  break
+fi
 check_cmd "RBF verification" "VERIFY_RBF" "$VERIFY_RBF"
 
-VERIFY_PAYMENT=
+VERIFY_PAYMENT=$(echo "$DECODED_TX" | jq -r '.vout[0].value')
 check_cmd "Payment verification" "VERIFY_PAYMENT" "$VERIFY_PAYMENT"
 
-VERIFY_CHANGE=
+VERIFY_CHANGE=$(echo "$DECODED_TX" | jq -r '.vout[1].value')
 check_cmd "Change verification" "VERIFY_CHANGE" "$VERIFY_CHANGE"
 
 echo "Verification Results:"
@@ -257,7 +280,9 @@ SIMPLE_TX_INPUTS='[{"txid":"'$TXID'","vout":0,"sequence":4294967293}]'
 SIMPLE_TX_OUTPUTS='{"'$TEST_ADDRESS'":0.0001}'
 
 # Create a raw transaction for signing using the SIMPLE_TX_INPUTS and SIMPLE_TX_OUTPUTS
-SIMPLE_RAW_TX=
+SIMPLE_RAW_TX=$(bitcoin-cli -regtest createrawtransaction "$SIMPLE_TX_INPUTS" "$SIMPLE_TX_OUTPUTS")
+check_cmd "Raw transaction creation" "RAW_TX" "$RAW_TX"
+
 check_cmd "Simple transaction creation" "SIMPLE_RAW_TX" "$SIMPLE_RAW_TX"
 
 echo "Simple transaction created: ${SIMPLE_RAW_TX:0:64}... (truncated)"
@@ -287,42 +312,45 @@ echo "- Send the funds to: 2MvM2nZjueT9qQJgZh7LBPoudS554B6arQc"
 echo ""
 
 # For the exercise, we'll assume the first transaction's TXID is the one created above in challenge 4 ($RAW_TX)
-PARENT_TXID=
+PARENT_TXID=$(echo "$DECODED_TX" | jq -r '.txid')
 check_cmd "Parent TXID extraction" "PARENT_TXID" "$PARENT_TXID"
 echo "Parent transaction ID: $PARENT_TXID"
 
 # STUDENT TASK: Identify the change output index from the parent transaction
 # WRITE YOUR SOLUTION BELOW:
-CHANGE_OUTPUT_INDEX=
+CHANGE_OUTPUT_INDEX=$(echo "$DECODED_TX" | jq -r '.vout[1].n')
 check_cmd "Change output identification" "CHANGE_OUTPUT_INDEX" "$CHANGE_OUTPUT_INDEX"
 
 # STUDENT TASK: Create the input JSON structure for the child transaction
 # WRITE YOUR SOLUTION BELOW:
-CHILD_INPUTS=
+CHILD_INPUTS="[{\"txid\": \"$PARENT_TXID\", \"vout\": $CHANGE_OUTPUT_INDEX}]"
 check_cmd "Child input creation" "CHILD_INPUTS" "$CHILD_INPUTS"
 
 # STUDENT TASK: Calculate fees, allowing for a high fee to help the parent transaction
-CHILD_TX_SIZE=
+CHILD_TX_SIZE=$((base_tx_size + (1 * input_size) + (1 * output_size)))
 check_cmd "Child transaction size calculation" "CHILD_TX_SIZE" "$CHILD_TX_SIZE"
 
 CHILD_FEE_RATE=20 # satoshis/vbyte
-CHILD_FEE_SATS=
+CHILD_FEE_SATS=$((CHILD_FEE_RATE * CHILD_FEE_SATS))
 check_cmd "Child fee calculation" "CHILD_FEE_SATS" "$CHILD_FEE_SATS"
 
 # Calculate the amount to send after deducting fee
+CHILD_OUTPUT_VALUE=$(echo $DECODED_TX | jq -r '.vout[1].value * 100000000 | floor')
+#CHILD_OUTPUT_VALUE_BTC=$(printf "%.8f" "$(bc -l <<< "scale=8; $CHILD_OUTPUT_VALUE / 100000000")")
+
 CHILD_RECIPIENT="2MvM2nZjueT9qQJgZh7LBPoudS554B6arQc"
-CHILD_SEND_AMOUNT=
+CHILD_SEND_AMOUNT=$((CHILD_OUTPUT_VALUE - CHILD_FEE_SATS))
 check_cmd "Child amount calculation" "CHILD_SEND_AMOUNT" "$CHILD_SEND_AMOUNT"
 
 # Convert to BTC
-CHILD_SEND_BTC=
+CHILD_SEND_BTC=$(printf "%.8f" "$(bc -l <<< "scale=8; $CHILD_SEND_AMOUNT / 100000000")")
 
 # STUDENT TASK: Create the outputs JSON structure
-CHILD_OUTPUTS=
+CHILD_OUTPUTS="{\"$CHILD_RECIPIENT\": $CHILD_SEND_BTC}"
 check_cmd "Child output creation" "CHILD_OUTPUTS" "$CHILD_OUTPUTS"
 
 # STUDENT TASK: Create the raw child transaction
-CHILD_RAW_TX=
+CHILD_RAW_TX=$(bitcoin-cli -regtest createrawtransaction "$CHILD_INPUTS" "$CHILD_OUTPUTS")
 check_cmd "Child transaction creation" "CHILD_RAW_TX" "$CHILD_RAW_TX"
 
 echo "Successfully created child transaction with higher fee!"
@@ -344,13 +372,73 @@ echo "- Sends funds to: bcrt1qxhy8dnae50nwkg6xfmjtedgs6augk5edj2tm3e"
 echo ""
 
 # Decode the secondary transaction (SECONDARY_TX) to get its TXID
-SECONDARY_TXID=
+decode_second_tx=$(bitcoin-cli -regtest decoderawtransaction $SECONDARY_TX)
+
+SECONDARY_TXID=$(echo $decode_second_tx | jq -r '.txid')
 check_cmd "Secondary TXID extraction" "SECONDARY_TXID" "$SECONDARY_TXID"
 echo "Secondary transaction ID: $SECONDARY_TXID"
+echo ""
+echo $decode_second_tx | jq '.'
+
 
 # STUDENT TASK: Create the input JSON structure with a 10-block relative timelock
 # WRITE YOUR SOLUTION BELOW:
-TIMELOCK_INPUTS=
+
+# some explanation for me to remember
+# the sequence number is 32 bit unsigned number, then range from 0 to 2^32 -1 : 4 294 967 295
+# so in Less Significant Bit (LSB) numerotin (31 30 29 .. .. .. 0 bit) if :
+
+# Bit 31: 
+#If set to 1 (0x80000000), it might disable certain features like relative lock-time, 
+# allowing the transaction input to be included in any block without delay. 
+# If set to 0, it enables those features, enforcing rules like waiting a certain number 
+#of blocks before the input can be spent.
+
+# Bit 22
+# Similarly, Bit 22 can serve as a type flag:​
+# If set to 1 (0x00400000), it could indicate that a particular feature (e.g., relative lock-time) 
+# is measured in time units (like seconds). 
+# If set to 0, it indicates measurement in block units.
+
+# Bits 0-15
+# The lower 16 bits (Bits 0-15) often represent a numerical value:​
+# Bits 0-15: These bits can store a value (e.g., the number of blocks or time units to wait). 
+# Since 16 bits can represent values from 0 to 65,535, this allows for specifying a wide range of values.
+
+#Suppose you want to set a sequence value with a 10-block relative lock-time. Using the conventions discussed:​
+# Bit 31: Set to 0 to enable relative lock-time 0x00000000.​
+# Bit 22: Set to 0 to measure in blocks 0x00000000.​
+# Bits 0-15: Set to 10 to specify a 10-block delay 0x0000000A.​
+# nSequence = 0x00000000 | 0x00000000 | 0x0000000A
+#           = 0x0000000A
+
+# Bash calculation
+# relative_blocks=10
+# sequence=$((0x00000000 | 0x00000000 | relative_blocks))
+# In binary, this would be: 0000 0000 0000 0000 0000 0000 0000 1010
+# Converting this to hexadecimal:​ 0x0000000A
+
+# The value 0x50000000 corresponds to a scenario where:​
+# Bit 31 is 0 (enabling relative locktime).​
+# Bit 22 is 1 (indicating time-based measurement).​
+# Bits 0-15 are 0 (initializing the locktime value).
+# This setup is used when specifying a time-based relative locktime.
+
+relative_blocks=10
+#sequence=$((0x50000000 + relative_blocks)) # this is for timelock in time (seconds)
+# echo "sequence=dollarsign((0x50000000 + relative_blocks)) : $sequence"
+
+sequence=$((0x00000000 | 0x00000000 | relative_blocks))
+echo "sequence=dollarsign((0x00000000 | 0x00000000 | relative_blocks)): $sequence"
+
+# sequence=$(echo "ibase=16; $sequence" | bc) # to convert hex to decimal
+# echo "obase=16; $decimal_number" | bc # to convert decimal to hex
+# echo "(echo q ibase=16; dollarsign_sequence q | bc) : $sequence"
+
+secondary_tx_output_index=$(echo $decode_second_tx | jq -r '.vout[1].n')
+echo "secondary_tx_output_index : $secondary_tx_output_index"
+
+TIMELOCK_INPUTS="[{\"txid\": \"$SECONDARY_TXID\", \"vout\": $secondary_tx_output_index, \"sequence\": $sequence}]"
 check_cmd "Timelock input creation" "TIMELOCK_INPUTS" "$TIMELOCK_INPUTS"
 
 # Recipient address for timelock funds
@@ -358,22 +446,24 @@ TIMELOCK_ADDRESS="bcrt1qxhy8dnae50nwkg6xfmjtedgs6augk5edj2tm3e"
 
 # STUDENT TASK: Calculate the amount to send (use the output value from SECONDARY_TX, minus a fee)
 # Hint: Extract the output value from the secondary TX first
-SECONDARY_OUTPUT_VALUE=
+
+
+SECONDARY_OUTPUT_VALUE=$(echo $decode_second_tx | jq -r '.vout[1].value * 100000000 | floor')
 check_cmd "Secondary output value extraction" "SECONDARY_OUTPUT_VALUE" "$SECONDARY_OUTPUT_VALUE"
 
 TIMELOCK_FEE=1000 # Use a simple fee of 1000 satoshis for this exercise
-TIMELOCK_AMOUNT=
+TIMELOCK_AMOUNT=$((SECONDARY_OUTPUT_VALUE - TIMELOCK_FEE))
 check_cmd "Timelock amount calculation" "TIMELOCK_AMOUNT" "$TIMELOCK_AMOUNT"
 
 # Convert to BTC
-TIMELOCK_BTC=
+TIMELOCK_BTC=$(printf "%.8f" "$(bc -l <<< "scale=8; $TIMELOCK_AMOUNT / 100000000")")
 
 # STUDENT TASK: Create the outputs JSON structure
-TIMELOCK_OUTPUTS=
+TIMELOCK_OUTPUTS="{\"$TIMELOCK_ADDRESS\": $TIMELOCK_BTC}"
 check_cmd "Timelock output creation" "TIMELOCK_OUTPUTS" "$TIMELOCK_OUTPUTS"
 
 # STUDENT TASK: Create the raw transaction with timelock
-TIMELOCK_TX=
+TIMELOCK_TX=$(bitcoin-cli -regtest createrawtransaction "$TIMELOCK_INPUTS" "$TIMELOCK_OUTPUTS")
 check_cmd "Timelock transaction creation" "TIMELOCK_TX" "$TIMELOCK_TX"
 
 echo "Successfully created transaction with 10-block relative timelock!"
